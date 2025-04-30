@@ -1,9 +1,12 @@
-EN/FR
+Language : EN/FR
+
 This shitty looper was fully made with ChatGPT
+
 ST sands for shit troll
 
 
-Lunch
+
+Start:
 
 python -m pip install sounddevice numpy keyboard
 
