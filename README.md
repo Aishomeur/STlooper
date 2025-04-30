@@ -1,6 +1,6 @@
 EN/FR
--This shitty looper was fully made with ChatGPT
--ST sands for shit troll
+This shitty looper was fully made with ChatGPT
+ST sands for shit troll
 
 
 Lunch
