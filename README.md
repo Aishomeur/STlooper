@@ -11,3 +11,6 @@ Start:
 python -m pip install sounddevice numpy keyboard
 
 python looper_app.py
+
+
+130ms is recommended for looper
