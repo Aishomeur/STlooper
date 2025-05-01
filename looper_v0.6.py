@@ -20,6 +20,7 @@ CONFIG_FILE = 'config.json'
 default_record_key = 'F9'
 default_reset_key = 'F10'
 default_pause_key = 'F11'
+default_timed_key = 'F12'  # new default for timed record
 
 # ======================================
 # ÉTAT GLOBAL
@@ -39,6 +40,7 @@ monitor_stream = None
 record_key = default_record_key
 reset_key = default_reset_key
 pause_key = default_pause_key
+timed_key = default_timed_key  # timed record hotkey variable
 input_idx = None
 loop_idx = None
 monitor_idx = None
@@ -62,6 +64,7 @@ if os.path.exists(CONFIG_FILE):
         record_key = cfg.get('record_key', record_key)
         reset_key = cfg.get('reset_key', reset_key)
         pause_key = cfg.get('pause_key', pause_key)
+        timed_key = cfg.get('timed_key', timed_key)
         last_input = cfg.get('input_name', None)
         last_loop = cfg.get('loop_name', None)
         last_monitor = cfg.get('monitor_name', None)
@@ -101,7 +104,6 @@ def audio_callback(indata, outdata, frames, time, status):
 # ======================================
 # FONCTIONS LOOPER & MONITOR
 # ======================================
-# Mise à jour du voyant de statut
 def update_indicator():
     color = 'red' if is_recording else 'grey'
     indicator_canvas.itemconfig(indicator_circle, fill=color)
@@ -117,9 +119,11 @@ def toggle_record():
     else:
         is_recording = False
         frames = []
-        while not record_queue.empty(): frames.append(record_queue.get())
+        while not record_queue.empty():
+            frames.append(record_queue.get())
         if frames:
-            with buffer_lock: loop_buffer = np.vstack(frames)
+            with buffer_lock:
+                loop_buffer = np.vstack(frames)
             playback_index = 0
             is_playing = True
             print(f"[Looper] Enr. arrêté, durée: {loop_buffer.shape[0]/SAMPLE_RATE:.2f}s")
@@ -130,11 +134,9 @@ def toggle_record():
 
 def reset_loop():
     global loop_buffer, is_playing, playback_index, is_recording
-    # Réinitialiser boucle et arrêter enregistrement
     with buffer_lock:
         loop_buffer = np.empty((0, CHANNELS), dtype=np.float32)
     is_recording = False
-    # Vider le buffer d'enregistrement
     while not record_queue.empty():
         record_queue.get()
     is_playing = False
@@ -163,29 +165,30 @@ def record_for_duration():
         print("[TimedRec] Durée invalide")
         return
     sec = ms / 1000.0
-    # nettoyer et démarrer
     if is_recording:
         print("[TimedRec] Déjà enregistrement")
         return
-    while not record_queue.empty(): record_queue.get()
+    while not record_queue.empty():
+        record_queue.get()
     playback_index = 0
     is_recording = True
     is_playing = False
     update_indicator()
     print(f"[TimedRec] Enregistrement pour {ms} ms démarré")
-    # arrêt programmé
     threading.Timer(sec, toggle_record).start()
 
 # ======================================
 # GESTION HOTKEYS
 # ======================================
 def update_hotkey(old_key, new_key, callback):
-    try: keyboard.remove_hotkey(old_key)
-    except: pass
+    try:
+        keyboard.remove_hotkey(old_key)
+    except:
+        pass
     keyboard.add_hotkey(new_key, callback)
 
 # ======================================
-# MONITOR THREAD
+# MONITOR THREAD & STREAM PRINCIPAL
 # ======================================
 def start_monitor_stream():
     global monitor_stream
@@ -200,9 +203,7 @@ def start_monitor_stream():
     except Exception as e:
         print(f"[Erreur Monitor]: {e}")
 
-# ======================================
-# STREAM PRINCIPAL
-# ======================================
+
 def start_stream():
     global stream
     try:
@@ -220,19 +221,15 @@ def start_stream():
 # ======================================
 root = tk.Tk()
 root.title("Loopy Looper")
-# Chargement et application de l'icône de l'application
-# Placez votre fichier 'logo.png' dans le même dossier que ce script
+# Icon et console GUI
 try:
     icon_img = tk.PhotoImage(file='logo.png')
     root.iconphoto(False, icon_img)
 except Exception as e:
     print(f"[Icône] Impossible de charger 'logo.png' : {e}")
 
-# Zone console intégrée
 import sys
 from tkinter.scrolledtext import ScrolledText
-
-# Redirection des prints vers la console GUI
 class TextRedirector(object):
     def __init__(self, widget):
         self.widget = widget
@@ -244,25 +241,20 @@ class TextRedirector(object):
     def flush(self):
         pass
 
-# Création de la zone console à droite
 console_frame = ttk.Frame(root)
 console_frame.grid(row=0, column=3, rowspan=10, sticky='nsew', padx=5, pady=5)
 console_text = ScrolledText(console_frame, state='disabled', width=40, height=20)
 console_text.pack(fill='both', expand=True)
-
-# Adapter la grille pour que la console prenne tout l'espace vertical
 root.grid_columnconfigure(3, weight=1)
-
-# Rediriger stdout et stderr
 sys.stdout = TextRedirector(console_text)
 sys.stderr = TextRedirector(console_text)
 
-# Enregistrer config et quitter
 def save_and_exit():
     config = {
         'record_key': record_key_var.get(),
         'reset_key': reset_key_var.get(),
         'pause_key': pause_key_var.get(),
+        'timed_key': timed_key_var.get(),
         'input_name': input_combo.get(),
         'loop_name': loop_combo.get(),
         'monitor_name': monitor_combo.get()
@@ -272,7 +264,6 @@ def save_and_exit():
         print('[Config] Enregistré')
     except Exception as e:
         print(f"[Config] Erreur enregistrement: {e}")
-    # fermer streams
     try:
         stream.stop(); stream.close()
     except:
@@ -285,10 +276,18 @@ def save_and_exit():
 
 root.protocol("WM_DELETE_WINDOW", save_and_exit)
 
-# Filtrer options sortie en fonction de l'entrée
+# Sélecteur Input
+tk.Label(root, text="Mic Input:").grid(row=0,column=0,sticky='w')
+input_combo = ttk.Combobox(root,
+    values=list(dict.fromkeys([d['name'] for d in device_list if d['max_input_channels']>0])),
+    state='readonly', width=40)
+input_combo.grid(row=0,column=1,padx=5,pady=5)
+input_combo.bind('<<ComboboxSelected>>', lambda e: update_output_options())
+if last_input in [d['name'] for d in device_list]: input_combo.set(last_input)
+else: input_combo.current(0)
+
 def update_output_options(event=None):
     host = next(d['hostapi'] for d in device_list if d['name']==input_combo.get())
-    # Options Looper uniques
     loop_opts = list(dict.fromkeys([d['name'] for d in device_list if d['hostapi']==host and d['max_output_channels']>0]))
     loop_combo['values'] = loop_opts
     if loop_combo.get() not in loop_opts: loop_combo.set(loop_opts[0] if loop_opts else '')
@@ -296,117 +295,88 @@ def update_output_options(event=None):
     monitor_combo['values'] = mon_opts
     if monitor_combo.get() not in mon_opts: monitor_combo.set(mon_opts[0] if mon_opts else '')
 
-# Sélecteur Input
-tk.Label(root, text="Entrée:").grid(row=0,column=0,sticky='w')
-# (Vous pouvez ajuster la largeur du menu via le paramètre width)
-# Sélecteur Input (sans doublons)
-input_combo = ttk.Combobox(root,
-    values=list(dict.fromkeys([d['name'] for d in device_list if d['max_input_channels']>0])),
-    state='readonly', width=40)
-input_combo.grid(row=0,column=1,padx=5,pady=5)
-input_combo.bind('<<ComboboxSelected>>', update_output_options)
-if last_input in [d['name'] for d in device_list]: input_combo.set(last_input)
-else: input_combo.current(0)
-
 # Sélecteur Loop Output
-ttk.Label(root, text="Sortie Looper:").grid(row=1,column=0,sticky='w')
-# (Ajustez width pour la largeur du menu Looper)
+ttk.Label(root, text="Looper Output:").grid(row=1,column=0,sticky='w')
 loop_combo = ttk.Combobox(root, state='readonly', width=40)
 loop_combo.grid(row=1,column=1,padx=5,pady=5)
-
 # Sélecteur Monitor Output
-ttk.Label(root, text="Sortie Monitor:").grid(row=2,column=0,sticky='w')
-# (Ajustez width pour la largeur du menu Monitor)
+ttk.Label(root, text="Monitor Output:").grid(row=2,column=0,sticky='w')
 monitor_combo = ttk.Combobox(root, state='readonly', width=40)
 monitor_combo.grid(row=2,column=1,padx=5,pady=5)
 update_output_options()
 if last_loop in loop_combo['values']: loop_combo.set(last_loop)
 if last_monitor in monitor_combo['values']: monitor_combo.set(last_monitor)
 
+# Boutons Looper & Monitor
+ttk.Button(root, text="Record", command=toggle_record).grid(row=3, column=0, pady=5)
+ttk.Button(root, text="Reset Loop", command=reset_loop).grid(row=3, column=1, pady=5)
+ttk.Button(root, text="Toggle Monitor", command=toggle_monitor).grid(row=3, column=2, pady=5)
+
+# Hotkey entries (y compris timed_key avant Record X ms)
+tk.Label(root, text="Record Hotkey:").grid(row=5,column=0,sticky='w')
+record_key_var = tk.StringVar(value=record_key)
+tk.Entry(root, textvariable=record_key_var).grid(row=5,column=1)
+
+tk.Label(root, text="Reset Hotkey:").grid(row=6,column=0,sticky='w')
+reset_key_var = tk.StringVar(value=reset_key)
+tk.Entry(root, textvariable=reset_key_var).grid(row=6,column=1)
+
+tk.Label(root, text="Pause Hotkey:").grid(row=7,column=0,sticky='w')
+pause_key_var = tk.StringVar(value=pause_key)
+tk.Entry(root, textvariable=pause_key_var).grid(row=7,column=1)
+
+# Nouvelle entrée pour timed record hotkey
+tk.Label(root, text="TimedRec Hotkey:").grid(row=8,column=0,sticky='w')
+timed_key_var = tk.StringVar(value=timed_key)
+tk.Entry(root, textvariable=timed_key_var).grid(row=8,column=1)
+
+# Champ durée et bouton d'enregistrement temporel
+ttk.Label(root, text="Time (ms):").grid(row=9, column=0, sticky='w')
+duration_var = tk.IntVar(value=130)
+duration_entry = ttk.Entry(root, textvariable=duration_var, width=10)
+duration_entry.grid(row=9, column=1, sticky='w', padx=5)
+ttk.Button(root, text="Record X ms", command=record_for_duration).grid(row=9, column=2, pady=5)
+
+# Statut et Voyant
+status_var = tk.StringVar()
+status_label = ttk.Label(root, textvariable=status_var)
+status_label.grid(row=6,column=0,columnspan=2)
+indicator_canvas = tk.Canvas(root, width=20, height=20, highlightthickness=0)
+indicator_canvas.grid(row=10, column=2, padx=5)
+indicator_circle = indicator_canvas.create_oval(2, 2, 18, 18, fill="grey")
+
+# Always on top checkbox
+always_on_top_var = tk.BooleanVar(value=False)
+tk.Checkbutton(root, text="Always on top", variable=always_on_top_var,
+               command=lambda: root.attributes('-topmost', always_on_top_var.get()) ).grid(row=10,column=0)
+
 # Appliquer paramètres
 def apply_settings():
-    global input_idx, loop_idx, monitor_idx, stream, monitor_thread, record_key, reset_key, pause_key
-    input_idx = next(d['index'] for d in device_list if d['name']==input_combo.get())
-    loop_idx = next(d['index'] for d in device_list if d['name']==loop_combo.get())
-    monitor_idx = next(d['index'] for d in device_list if d['name']==monitor_combo.get())
-    # Mettre à jour touches
+    global record_key, reset_key, pause_key, timed_key, input_idx, loop_idx, monitor_idx
     record_key = record_key_var.get()
     reset_key = reset_key_var.get()
     pause_key = pause_key_var.get()
-    # restart main stream
+    timed_key = timed_key_var.get()
+    input_idx = next(d['index'] for d in device_list if d['name']==input_combo.get())
+    loop_idx = next(d['index'] for d in device_list if d['name']==loop_combo.get())
+    monitor_idx = next(d['index'] for d in device_list if d['name']==monitor_combo.get())
     if stream: stream.stop(); stream.close()
     start_stream()
-    # restart monitor thread
     if 'monitor_thread' in globals():
         try: monitor_stream.stop(); monitor_stream.close()
         except: pass
     monitor_thread = threading.Thread(target=start_monitor_stream, daemon=True)
     monitor_thread.start()
-    # hotkeys
     keyboard.unhook_all()
     keyboard.add_hotkey(record_key, toggle_record)
     keyboard.add_hotkey(reset_key, reset_loop)
     keyboard.add_hotkey(pause_key, toggle_playback)
-    update_status()
+    keyboard.add_hotkey(timed_key, record_for_duration)
 
-apply_btn = ttk.Button(root, text="Appliquer", command=apply_settings)
-apply_btn.grid(row=3,column=0,columnspan=2,pady=5)
 
-# Hotkey entries
-ttk.Label(root, text="Touche Record:").grid(row=4,column=0,sticky='w')
-record_key_var = tk.StringVar(value=record_key)
-record_entry = ttk.Entry(root, textvariable=record_key_var)
-record_entry.grid(row=4,column=1); record_entry.bind('<Return>', lambda e: apply_settings())
-
-ttk.Label(root, text="Touche Reset:").grid(row=5,column=0,sticky='w')
-reset_key_var = tk.StringVar(value=reset_key)
-reset_entry = ttk.Entry(root, textvariable=reset_key_var)
-reset_entry.grid(row=5,column=1); reset_entry.bind('<Return>', lambda e: apply_settings())
-
-ttk.Label(root, text="Touche Pause:").grid(row=6,column=0,sticky='w')
-pause_key_var = tk.StringVar(value=pause_key)
-pause_entry = ttk.Entry(root, textvariable=pause_key_var)
-pause_entry.grid(row=6, column=1); pause_entry.bind('<Return>', lambda e: apply_settings())
-
-# Champ durée et bouton d'enregistrement temporel (bouton séparé)
-# Vous pouvez ajuster le placement (row) si besoin
-duration_var = tk.IntVar(value=1000)  # durée en ms
-ttk.Label(root, text="Durée (ms):").grid(row=10, column=0, sticky='w')
-duration_entry = ttk.Entry(root, textvariable=duration_var, width=10)
-duration_entry.grid(row=10, column=1, sticky='w', padx=5)
-# Bouton d'enregistrement temporel séparé
-ttk.Button(root, text="Record X ms", command=record_for_duration).grid(row=10, column=2, pady=5)
-
-# Boutons Looper & Monitor
-# Bouton Enregistrer
-ttk.Button(root, text="Enregistrer", command=toggle_record).grid(row=7, column=0, pady=5)
-# Bouton Reset
-ttk.Button(root, text="Reset Loop", command=reset_loop).grid(row=7, column=1, pady=5)
-# Bouton Monitor
-ttk.Button(root, text="Toggle Monitor", command=toggle_monitor).grid(row=7, column=2, pady=5)
-
-# Statut et Voyant
-def update_status():
-    status_var.set(f"Rec:{record_key} Reset:{reset_key} Pause:{pause_key}")
-    update_indicator()
-status_var = tk.StringVar()
-status_label = ttk.Label(root, textvariable=status_var)
-status_label.grid(row=8,column=0,columnspan=2)
-# Voyant d'enregistrement
-indicator_canvas = tk.Canvas(root, width=20, height=20, highlightthickness=0)
-indicator_canvas.grid(row=8, column=2, padx=5)
-indicator_circle = indicator_canvas.create_oval(2, 2, 18, 18, fill="grey")
-update_status()
-
-# Toujours au-dessus
-tk.Label(root, text="").grid(row=9, column=0)  # espacement
-always_on_top_var = tk.BooleanVar(value=False)
-always_on_top_cb = ttk.Checkbutton(root, text="Toujours au-dessus", variable=always_on_top_var,
-                                   command=lambda: root.attributes('-topmost', always_on_top_var.get()))
-always_on_top_cb.grid(row=9, column=1, columnspan=1, pady=5)
+apply_btn = ttk.Button(root, text="Apply", command=apply_settings)
+apply_btn.grid(row=4,column=0,columnspan=2,pady=5)
 
 # Initialisation
-def init():
-    apply_settings()
-init()
+apply_settings()
 root.mainloop()
