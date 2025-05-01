@@ -8,6 +8,8 @@ How to setup
 Install latest python version
 https://www.python.org/downloads/
 
+Install virtual calbe
+https://vb-audio.com/Cable/
 
 Open a terminal prompt on the app folder
 ![CMD](https://github.com/user-attachments/assets/06b52590-8c1a-43f6-ad9a-654745b623f4)
