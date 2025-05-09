@@ -27,4 +27,3 @@ python looper_v0.6.py
 ![How to configure discord](https://github.com/user-attachments/assets/c7c60623-e45a-4f0a-9914-b0d6e583b92c)
 ![How to configure STlooper](https://github.com/user-attachments/assets/fe2ed2b6-ba82-4cfd-a6a0-58d686480187)
 
-This shitty looper was fully made with ChatGPT!
