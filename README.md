@@ -21,7 +21,7 @@ pip install -r requirements.txt
 
 Launch with
 ```
-python looper_v0.6.py
+python main.py
 ```
 
 ![How to configure discord](https://github.com/user-attachments/assets/c7c60623-e45a-4f0a-9914-b0d6e583b92c)
